@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import plotly.graph_objects as go
+import numpy as np
 
 st.set_page_config(page_title="Gravity Battery - Seesaw Simulation", layout="wide")
 
@@ -15,9 +16,9 @@ MAX_TOTAL_BLOCKS = 20  # Max blocks (200kg) at A and B combined
 
 # ---------- SESSION STATE ----------
 if "blocks_top_A" not in st.session_state:
-    st.session_state.blocks_top_A = 1
+    st.session_state.blocks_top_A = 1  # initial 10 kg = 1 block
 if "blocks_top_B" not in st.session_state:
-    st.session_state.blocks_top_B = 2
+    st.session_state.blocks_top_B = 2  # initial 20 kg = 2 blocks
 if "tied_bottom_C" not in st.session_state:
     st.session_state.tied_bottom_C = 0
 if "tied_bottom_D" not in st.session_state:
@@ -27,9 +28,9 @@ if "storage_left" not in st.session_state:
 if "storage_right" not in st.session_state:
     st.session_state.storage_right = 0
 if "battery1" not in st.session_state:
-    st.session_state.battery1 = 0
+    st.session_state.battery1 = 0  # small battery % (0-100)
 if "battery2" not in st.session_state:
-    st.session_state.battery2 = 0
+    st.session_state.battery2 = 0  # big battery % (0-100)
 if "generator_angle" not in st.session_state:
     st.session_state.generator_angle = 0
 if "houses_lit" not in st.session_state:
@@ -44,47 +45,56 @@ if "step_count" not in st.session_state:
     st.session_state.step_count = 0
 
 # ---------- DRAW / ANIMATION HELPERS ----------
-def draw_scene(dropping=None, drop_y=None, dropping_size=10, note="", mode=None):
+def draw_scene(dropping=None, drop_y=None, dropping_size=10, lifting=None, lift_y=None, lifting_size=10, note=""):
+    """
+    dropping: None or tuple(point_name e.g. 'left'/'right'/'BIG', color)
+    drop_y: y coordinate of top of the falling rectangle
+    dropping_size: kg size for dropping annotation (20 or 160)
+    lifting: None or tuple(point_name e.g. 'left'/'right', color)
+    lift_y: y coordinate of top of the lifting rectangle
+    lifting_size: kg size for lifting annotation (10)
+    """
     fig = go.Figure()
     # Ground line
     fig.add_shape(type="line", x0=-3, y0=0, x1=3, y1=0, line=dict(color="black", width=3))
-    # Labels
-    fig.add_annotation(x=-1.8, y=55, text="A (+50m)", showarrow=False)
-    fig.add_annotation(x=1.8, y=55, text="B (+50m)", showarrow=False)
-    fig.add_annotation(x=-1.8, y=-55, text="C (−50m)", showarrow=False)
-    fig.add_annotation(x=1.8, y=-55, text="D (−50m)", showarrow=False)
+    # Labels for points
+    fig.add_annotation(x=-1.8, y=55, text="A (+50m)", showarrow=False, font=dict(size=12))
+    fig.add_annotation(x=1.8, y=55, text="B (+50m)", showarrow=False, font=dict(size=12))
+    fig.add_annotation(x=-1.8, y=-55, text="C (−50m)", showarrow=False, font=dict(size=12))
+    fig.add_annotation(x=1.8, y=-55, text="D (−50m)", showarrow=False, font=dict(size=12))
 
-    # Blocks at top
+    # Draw stacked blocks at top A (left, blue)
     for i in range(st.session_state.blocks_top_A):
         y0 = 50 + i * 1.05
-        fig.add_shape(type="rect", x0=-2.1, x1=-1.5, y0=y0, y1=y0 + 0.95,
-                      fillcolor="#2b6cb0", line=dict(color="black"))
+        fig.add_shape(type="rect", x0=-2.1, x1=-1.5, y0=y0, y1=y0 + 0.95, fillcolor="#2b6cb0", line=dict(color="black"))
+    # Draw stacked blocks at top B (right, red)
     for i in range(st.session_state.blocks_top_B):
         y0 = 50 + i * 1.05
-        fig.add_shape(type="rect", x0=1.5, x1=2.1, y0=y0, y1=y0 + 0.95,
-                      fillcolor="#c53030", line=dict(color="black"))
+        fig.add_shape(type="rect", x0=1.5, x1=2.1, y0=y0, y1=y0 + 0.95, fillcolor="#c53030", line=dict(color="black"))
 
-    # Tied at bottom
-    if st.session_state.tied_bottom_C > 0:
-        fig.add_shape(type="rect", x0=-2.1, x1=-1.5, y0=-51, y1=-50.05,
-                      fillcolor="gray", line=dict(color="black"))
-    if st.session_state.tied_bottom_D > 0:
-        fig.add_shape(type="rect", x0=1.5, x1=2.1, y0=-51, y1=-50.05,
-                      fillcolor="gray", line=dict(color="black"))
+    # Tied block at bottom C (left, gray if present)
+    if st.session_state.tied_bottom_C > 0 and (lifting is None or lifting[0] != "left"):
+        fig.add_shape(type="rect", x0=-2.1, x1=-1.5, y0=-51, y1=-50.05, fillcolor="gray", line=dict(color="black"))
+    # Tied block at bottom D (right, gray if present)
+    if st.session_state.tied_bottom_D > 0 and (lifting is None or lifting[0] != "right"):
+        fig.add_shape(type="rect", x0=1.5, x1=2.1, y0=-51, y1=-50.05, fillcolor="gray", line=dict(color="black"))
 
-    # Storage
+    # Stored blocks at left (below tied, orange)
     num_stored_left = st.session_state.storage_left // 10
+    base_y_left = -51.05
     for i in range(num_stored_left):
-        fig.add_shape(type="rect", x0=-2.1, x1=-1.5,
-                      y0=-52 - i * 1.05, y1=-51 - i * 1.05,
-                      fillcolor="#dd6b20", line=dict(color="black"))
+        y1 = base_y_left - i * 1.05
+        y0 = y1 - 0.95
+        fig.add_shape(type="rect", x0=-2.1, x1=-1.5, y0=y0, y1=y1, fillcolor="#dd6b20", line=dict(color="black"))
+    # Stored blocks at right (below tied, orange)
     num_stored_right = st.session_state.storage_right // 10
+    base_y_right = -51.05
     for i in range(num_stored_right):
-        fig.add_shape(type="rect", x0=1.5, x1=2.1,
-                      y0=-52 - i * 1.05, y1=-51 - i * 1.05,
-                      fillcolor="#dd6b20", line=dict(color="black"))
+        y1 = base_y_right - i * 1.05
+        y0 = y1 - 0.95
+        fig.add_shape(type="rect", x0=1.5, x1=2.1, y0=y0, y1=y1, fillcolor="#dd6b20", line=dict(color="black"))
 
-    # Dropping / lifting block
+    # Optional dropping block
     if dropping and drop_y is not None:
         pt, color = dropping
         if pt == "left":
@@ -95,27 +105,29 @@ def draw_scene(dropping=None, drop_y=None, dropping_size=10, note="", mode=None)
             x0, x1 = -1.2, 1.2
         else:
             x0, x1 = -0.6, 0.6
-        fig.add_shape(type="rect", x0=x0, x1=x1, y0=drop_y, y1=drop_y + 0.95,
-                      fillcolor=color, line=dict(color="black"))
-        status = mode if mode else "Moving"
-        fig.add_annotation(x=0, y=drop_y + 1.2,
-                           text=f"{status}: {dropping_size}kg",
-                           showarrow=False)
+        fig.add_shape(type="rect", x0=x0, x1=x1, y0=drop_y, y1=drop_y + 0.95, fillcolor=color, line=dict(color="black"))
+        fig.add_annotation(x=(x0+x1)/2, y=drop_y + 1.2, text=f"Dropping: {dropping_size}kg", showarrow=False)
 
-    # Generator
+    # Optional lifting block
+    if lifting and lift_y is not None:
+        pt, color = lifting
+        if pt == "left":
+            x0, x1 = -2.1, -1.5
+        elif pt == "right":
+            x0, x1 = 1.5, 2.1
+        fig.add_shape(type="rect", x0=x0, x1=x1, y0=lift_y, y1=lift_y + 0.95, fillcolor=color, line=dict(color="black"))
+        fig.add_annotation(x=(x0+x1)/2, y=lift_y + 1.2, text=f"Lifting: {lifting_size}kg", showarrow=False)
+
+    # Generator visual and angle
     angle = st.session_state.generator_angle % 360
-    fig.add_shape(type="circle", x0=-0.4, y0=-20.6, x1=0.4, y1=-21.6,
-                  line=dict(color="orange", width=3))
-    fig.add_annotation(x=0, y=-21.1, text=f"⚙ {angle:.0f}°",
-                       showarrow=False, font=dict(color="orange"))
+    fig.add_shape(type="circle", x0=-0.4, y0=-20.6, x1=0.4, y1=-21.6, line=dict(color="orange", width=3))
+    fig.add_annotation(x=0, y=-21.1, text=f"⚙ {angle:.0f}°", showarrow=False, font=dict(color="orange"))
 
     # Battery labels
-    fig.add_annotation(x=-2.7, y=45,
-                       text=f"🔋 B1: {st.session_state.battery1:.0f}%", showarrow=False)
-    fig.add_annotation(x=2.7, y=45,
-                       text=f"🔋 B2: {st.session_state.battery2:.0f}%", showarrow=False)
+    fig.add_annotation(x=-2.7, y=45, text=f"🔋 B1: {st.session_state.battery1:.0f}%", showarrow=False)
+    fig.add_annotation(x=2.7, y=45, text=f"🔋 B2: {st.session_state.battery2:.0f}%", showarrow=False)
 
-    # Houses
+    # Houses indicator
     houses_text = "🏠 lit" if st.session_state.houses_lit else "🏠 dark"
     fig.add_annotation(x=0, y=45, text=houses_text, showarrow=False)
 
@@ -124,26 +136,19 @@ def draw_scene(dropping=None, drop_y=None, dropping_size=10, note="", mode=None)
     fig.update_layout(height=600, margin=dict(l=10, r=10, t=10, b=10), autosize=True)
     return fig
 
-def animate_fall(placeholder, pt, color="#2b6cb0", start_y=50, end_y=-50, steps=50, size_kg=20):
-    """Animate downward movement (discharge)."""
+def animate_drop_and_lift(placeholder, drop_pt, drop_color, lift_pt, lift_color, drop_size=20, lift_size=10, steps=50):
+    start_drop_y, end_drop_y = 50, -50
+    start_lift_y, end_lift_y = -50, 50
     for step in range(steps):
         if st.session_state.stop_requested:
             return False
         t = step / (steps - 1)
-        y = start_y + (end_y - start_y) * t
-        fig = draw_scene(dropping=(pt, color), drop_y=y, dropping_size=size_kg, mode="Dropping")
-        placeholder.plotly_chart(fig, use_container_width=True)
-        time.sleep(FRAME_DELAY)
-    return True
-
-def animate_lift(placeholder, pt, color="#2b6cb0", start_y=-50, end_y=50, steps=50, size_kg=20):
-    """Animate upward movement (charging)."""
-    for step in range(steps):
-        if st.session_state.stop_requested:
-            return False
-        t = step / (steps - 1)
-        y = start_y + (end_y - start_y) * t
-        fig = draw_scene(dropping=(pt, color), drop_y=y, dropping_size=size_kg, mode="Moving")
+        drop_y = start_drop_y + (end_drop_y - start_drop_y) * t
+        lift_y = start_lift_y + (end_lift_y - start_lift_y) * t
+        fig = draw_scene(
+            dropping=(drop_pt, drop_color), drop_y=drop_y, dropping_size=drop_size,
+            lifting=(lift_pt, lift_color), lift_y=lift_y, lifting_size=lift_size
+        )
         placeholder.plotly_chart(fig, use_container_width=True)
         time.sleep(FRAME_DELAY)
     return True
@@ -165,10 +170,8 @@ with left_col:
         st.session_state.running = False
 
     st.write("Initial top stacks (editable, max 200kg total):")
-    blocks_a = st.number_input("Blocks at top A (10kg each)", min_value=0, max_value=MAX_TOTAL_BLOCKS,
-                               value=st.session_state.blocks_top_A, step=1)
-    blocks_b = st.number_input("Blocks at top B (10kg each)", min_value=0, max_value=MAX_TOTAL_BLOCKS,
-                               value=st.session_state.blocks_top_B, step=1)
+    blocks_a = st.number_input("Blocks at top A (10kg each)", min_value=0, max_value=MAX_TOTAL_BLOCKS, value=st.session_state.blocks_top_A, step=1)
+    blocks_b = st.number_input("Blocks at top B (10kg each)", min_value=0, max_value=MAX_TOTAL_BLOCKS, value=st.session_state.blocks_top_B, step=1)
     if blocks_a + blocks_b <= MAX_TOTAL_BLOCKS:
         st.session_state.blocks_top_A = blocks_a
         st.session_state.blocks_top_B = blocks_b
@@ -180,6 +183,10 @@ with mid_col:
 
 with right_col:
     st.subheader("Status")
+    total_storage = st.session_state.storage_left + st.session_state.storage_right
+    total_mass = (st.session_state.blocks_top_A + st.session_state.blocks_top_B +
+                  st.session_state.tied_bottom_C + st.session_state.tied_bottom_D +
+                  st.session_state.storage_left // 10 + st.session_state.storage_right // 10) * 10
     st.write(f"Step: {st.session_state.step_count}")
     st.write(f"Top A: {st.session_state.blocks_top_A * 10} kg")
     st.write(f"Top B: {st.session_state.blocks_top_B * 10} kg")
@@ -187,53 +194,155 @@ with right_col:
     st.write(f"Tied at D: {st.session_state.tied_bottom_D * 10} kg")
     st.write(f"Storage left (C): {st.session_state.storage_left} kg")
     st.write(f"Storage right (D): {st.session_state.storage_right} kg")
+    st.write(f"Total storage: {total_storage} kg")
+    st.write(f"Total mass: {total_mass} kg")
     st.write(f"Battery B1: {st.session_state.battery1:.0f}%")
     st.write(f"Battery B2: {st.session_state.battery2:.0f}%")
+    st.write(f"Generator angle: {st.session_state.generator_angle:.0f}°")
+    if st.session_state.houses_lit:
+        st.success("Houses are lit by B1!")
+    else:
+        st.info("Houses are not lit yet")
 
-# Initial scene (unique key to avoid duplicate element error)
-scene_ph.plotly_chart(draw_scene(), use_container_width=True, key="init_scene")
+# Render scene
+scene_ph.plotly_chart(draw_scene(), use_container_width=True)
 
 # ---------- SIMULATION STEP ----------
 if st.session_state.running and not st.session_state.stop_requested:
     dropped = False
-    lifted = 0
+    side = None
+    opposite = None
+    drop_color = None
+    lift_color = None
 
+    # Log state
+    total_storage = st.session_state.storage_left + st.session_state.storage_right
     st.session_state.step_count += 1
+    state_log = (
+        f"--- Step {st.session_state.step_count - 1} ---\n"
+        f"Top A: {st.session_state.blocks_top_A * 10}kg | Top B: {st.session_state.blocks_top_B * 10}kg\n"
+        f"Tied C: {st.session_state.tied_bottom_C * 10}kg | Tied D: {st.session_state.tied_bottom_D * 10}kg\n"
+        f"Storage L: {st.session_state.storage_left}kg | Storage R: {st.session_state.storage_right}kg | Total: {total_storage}kg\n"
+        f"B1: {st.session_state.battery1}% | B2: {st.session_state.battery2}% | Gen: {st.session_state.generator_angle}°\n"
+        f"Houses: {'lit' if st.session_state.houses_lit else 'dark'}"
+    )
+    st.session_state.logs.append(state_log)
+    st.session_state.logs = st.session_state.logs[-100:]  # Limit to last 100 entries
 
-    # Drop from A → C, lift D → B
-    if st.session_state.blocks_top_A == 2 and st.session_state.blocks_top_B < 2:
-        animate_fall(scene_ph, "left", color="#2b6cb0", steps=50, size_kg=20)
+    # Check for drops
+    if st.session_state.blocks_top_A == 2 and st.session_state.blocks_top_B < 2 and st.session_state.tied_bottom_D > 0:
+        ok = animate_drop_and_lift(scene_ph, "left", "#2b6cb0", "right", "#c53030", drop_size=20, lift_size=10)
+        if not ok:
+            st.session_state.stop_requested = True
         st.session_state.blocks_top_A = 0
         st.session_state.storage_left += 10
         st.session_state.tied_bottom_C += 1
         lifted = st.session_state.tied_bottom_D
-        if lifted > 0:
-            animate_lift(scene_ph, "right", color="#c53030", steps=50, size_kg=lifted * 10)
         st.session_state.blocks_top_B += lifted
         st.session_state.tied_bottom_D = 0
+        side, opposite, drop_color, lift_color = "left", "right", "#2b6cb0", "#c53030"
         dropped = True
-
-    # Drop from B → D, lift C → A
-    elif st.session_state.blocks_top_B == 2 and st.session_state.blocks_top_A < 2:
-        animate_fall(scene_ph, "right", color="#c53030", steps=50, size_kg=20)
+    elif st.session_state.blocks_top_B == 2 and st.session_state.blocks_top_A < 2 and st.session_state.tied_bottom_C > 0:
+        ok = animate_drop_and_lift(scene_ph, "right", "#c53030", "left", "#2b6cb0", drop_size=20, lift_size=10)
+        if not ok:
+            st.session_state.stop_requested = True
         st.session_state.blocks_top_B = 0
         st.session_state.storage_right += 10
         st.session_state.tied_bottom_D += 1
         lifted = st.session_state.tied_bottom_C
-        if lifted > 0:
-            animate_lift(scene_ph, "left", color="#2b6cb0", steps=50, size_kg=lifted * 10)
         st.session_state.blocks_top_A += lifted
         st.session_state.tied_bottom_C = 0
+        side, opposite, drop_color, lift_color = "right", "left", "#c53030", "#2b6cb0"
+        dropped = True
+    elif st.session_state.blocks_top_A == 2 and st.session_state.blocks_top_B == 2:
+        # Alternate drops when both sides have 2 blocks
+        if st.session_state.step_count % 2 == 0 and st.session_state.tied_bottom_D > 0:
+            ok = animate_drop_and_lift(scene_ph, "left", "#2b6cb0", "right", "#c53030", drop_size=20, lift_size=10)
+            if not ok:
+                st.session_state.stop_requested = True
+            st.session_state.blocks_top_A = 0
+            st.session_state.storage_left += 10
+            st.session_state.tied_bottom_C += 1
+            lifted = st.session_state.tied_bottom_D
+            st.session_state.blocks_top_B += lifted
+            st.session_state.tied_bottom_D = 0
+            side, opposite, drop_color, lift_color = "left", "right", "#2b6cb0", "#c53030"
+        elif st.session_state.tied_bottom_C > 0:
+            ok = animate_drop_and_lift(scene_ph, "right", "#c53030", "left", "#2b6cb0", drop_size=20, lift_size=10)
+            if not ok:
+                st.session_state.stop_requested = True
+            st.session_state.blocks_top_B = 0
+            st.session_state.storage_right += 10
+            st.session_state.tied_bottom_D += 1
+            lifted = st.session_state.tied_bottom_C
+            st.session_state.blocks_top_A += lifted
+            st.session_state.tied_bottom_C = 0
+            side, opposite, drop_color, lift_color = "right", "left", "#c53030", "#2b6cb0"
         dropped = True
 
-    # (same alternating case for both sides == 2, just add animate_lift like above...)
+    if not dropped:
+        time.sleep(0.2)
+        st.rerun()
 
-    # Update scene
+    # Generate power for small drop (20kg)
+    energy_joules = 20 * GRAVITY * HEIGHT  # 19,620 J
+    st.session_state.battery1 = min(st.session_state.battery1 + (energy_joules / B1_CAPACITY) * 100, 100)
+    st.session_state.generator_angle += (energy_joules / B1_CAPACITY) * 360  # Proportional rotation
+    st.session_state.houses_lit = st.session_state.battery1 >= 10
+
+    # Log drop event
+    lift_to = "B" if opposite == "right" else "A"
+    drop_to = "C" if side == "left" else "D"
+    st.session_state.logs.append(
+        f"Action: Dropped 20kg from {side.upper()} to {drop_to}, stored 10kg, tied 10kg. "
+        f"Lifted {lifted * 10}kg to {lift_to}. B1 +{(energy_joules / B1_CAPACITY) * 100:.1f}%, Generator +{(energy_joules / B1_CAPACITY) * 360:.0f}°."
+    )
+    # Add 10kg to opposite side
+    if opposite == "left":
+        st.session_state.blocks_top_A += 1
+        add_side = "A"
+    else:
+        st.session_state.blocks_top_B += 1
+        add_side = "B"
+    st.session_state.logs.append(f"Action: Added 10kg to {add_side}.")
+    st.session_state.logs = st.session_state.logs[-100:]
+
+    # Update scene after drop
     scene_ph.plotly_chart(draw_scene(), use_container_width=True)
     time.sleep(0.4)
 
+    # Check for STORAGE threshold -> trigger BIG CYCLE
+    total_storage = st.session_state.storage_left + st.session_state.storage_right
+    if total_storage >= STORAGE_THRESHOLD:
+        st.session_state.logs.append(f"Action: Big cycle triggered (Storage = {total_storage}kg). Dropping 160kg...")
+        ok = animate_drop_and_lift(scene_ph, "BIG", "#805ad5", None, None, drop_size=160, lift_size=0, steps=60)
+        if not ok:
+            st.session_state.stop_requested = True
+        energy_joules = 160 * GRAVITY * HEIGHT  # 156,960 J
+        st.session_state.generator_angle += (energy_joules / B2_CAPACITY) * 360
+        st.session_state.battery2 = min(st.session_state.battery2 + (energy_joules / B2_CAPACITY) * 100, 100)
+        st.session_state.storage_left = 0
+        st.session_state.storage_right = 0
+        st.session_state.battery2 = max(st.session_state.battery2 - (80_000 / B2_CAPACITY) * 100, 0)  # Assume 80 kJ to lift
+        total_storage = st.session_state.storage_left + st.session_state.storage_right
+        st.session_state.logs.append(
+            f"--- Step {st.session_state.step_count} ---\n"
+            f"Top A: {st.session_state.blocks_top_A * 10}kg | Top B: {st.session_state.blocks_top_B * 10}kg\n"
+            f"Tied C: {st.session_state.tied_bottom_C * 10}kg | Tied D: {st.session_state.tied_bottom_D * 10}kg\n"
+            f"Storage L: {st.session_state.storage_left}kg | Storage R: {st.session_state.storage_right}kg | Total: {total_storage}kg\n"
+            f"B1: {st.session_state.battery1}% | B2: {st.session_state.battery2}% | Gen: {st.session_state.generator_angle}°\n"
+            f"Houses: {'lit' if st.session_state.houses_lit else 'dark'}\n"
+            f"Action: Big cycle: Dropped 160kg, B2 +{(energy_joules / B2_CAPACITY) * 100:.1f}%, "
+            f"Gen +{(energy_joules / B2_CAPACITY) * 360:.0f}°. Reset storages. Used {(80_000 / B2_CAPACITY) * 100:.1f}% B2 to lift 160kg."
+        )
+        st.session_state.logs = st.session_state.logs[-100:]
+        st.session_state.houses_lit = st.session_state.battery1 >= 10
+        scene_ph.plotly_chart(draw_scene(), use_container_width=True)
+        time.sleep(0.6)
+
+    # Rerun to update UI with new values
     st.rerun()
 
-# ---------- Logs ----------
+# Event Log display
 st.subheader("Simulation Steps & Events")
 st.text_area("Simulation Log", value="\n".join(st.session_state.logs), height=300, disabled=True)
