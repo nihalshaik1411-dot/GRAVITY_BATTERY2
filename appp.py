@@ -44,7 +44,7 @@ if "step_count" not in st.session_state:
     st.session_state.step_count = 0
 
 # ---------- DRAW / ANIMATION HELPERS ----------
-def draw_scene(dropping=None, drop_y=None, dropping_size=10, note=""):
+def draw_scene(dropping=None, drop_y=None, dropping_size=10, note="", mode=None):
     fig = go.Figure()
     # Ground line
     fig.add_shape(type="line", x0=-3, y0=0, x1=3, y1=0, line=dict(color="black", width=3))
@@ -97,8 +97,9 @@ def draw_scene(dropping=None, drop_y=None, dropping_size=10, note=""):
             x0, x1 = -0.6, 0.6
         fig.add_shape(type="rect", x0=x0, x1=x1, y0=drop_y, y1=drop_y + 0.95,
                       fillcolor=color, line=dict(color="black"))
+        status = mode if mode else "Moving"
         fig.add_annotation(x=0, y=drop_y + 1.2,
-                           text=f"{'Moving' if start_y < end_y else 'Dropping'}: {dropping_size}kg",
+                           text=f"{status}: {dropping_size}kg",
                            showarrow=False)
 
     # Generator
@@ -130,7 +131,7 @@ def animate_fall(placeholder, pt, color="#2b6cb0", start_y=50, end_y=-50, steps=
             return False
         t = step / (steps - 1)
         y = start_y + (end_y - start_y) * t
-        fig = draw_scene(dropping=(pt, color), drop_y=y, dropping_size=size_kg)
+        fig = draw_scene(dropping=(pt, color), drop_y=y, dropping_size=size_kg, mode="Dropping")
         placeholder.plotly_chart(fig, use_container_width=True)
         time.sleep(FRAME_DELAY)
     return True
@@ -142,7 +143,7 @@ def animate_lift(placeholder, pt, color="#2b6cb0", start_y=-50, end_y=50, steps=
             return False
         t = step / (steps - 1)
         y = start_y + (end_y - start_y) * t
-        fig = draw_scene(dropping=(pt, color), drop_y=y, dropping_size=size_kg)
+        fig = draw_scene(dropping=(pt, color), drop_y=y, dropping_size=size_kg, mode="Moving")
         placeholder.plotly_chart(fig, use_container_width=True)
         time.sleep(FRAME_DELAY)
     return True
@@ -236,3 +237,4 @@ if st.session_state.running and not st.session_state.stop_requested:
 # ---------- Logs ----------
 st.subheader("Simulation Steps & Events")
 st.text_area("Simulation Log", value="\n".join(st.session_state.logs), height=300, disabled=True)
+
