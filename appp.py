@@ -190,8 +190,8 @@ with right_col:
     st.write(f"Battery B1: {st.session_state.battery1:.0f}%")
     st.write(f"Battery B2: {st.session_state.battery2:.0f}%")
 
-# Initial scene
-scene_ph.plotly_chart(draw_scene(), use_container_width=True)
+# Initial scene (unique key to avoid duplicate element error)
+scene_ph.plotly_chart(draw_scene(), use_container_width=True, key="init_scene")
 
 # ---------- SIMULATION STEP ----------
 if st.session_state.running and not st.session_state.stop_requested:
@@ -237,4 +237,3 @@ if st.session_state.running and not st.session_state.stop_requested:
 # ---------- Logs ----------
 st.subheader("Simulation Steps & Events")
 st.text_area("Simulation Log", value="\n".join(st.session_state.logs), height=300, disabled=True)
-
